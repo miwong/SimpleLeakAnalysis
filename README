@@ -1,0 +1,4 @@
+SimpleLeakAnalysis
+
+A simple Soot program that statically checks whether an Android application leaks sensitive data.
+
