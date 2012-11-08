@@ -24,6 +24,14 @@ public class LeakAnalysis extends SceneTransformer {
 		"<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>"
 	);
 	
+	private static final List<String> contentURIs = Arrays.asList(
+		""
+	);
+	
+	private static final List<String> intentFilters = Arrays.asList(
+		"RECEIVE_SMS"
+	);
+	
 	public void internalTransform(String phaseName, Map options) {
 		CHATransformer.v().transform();
 		mCallGraph = Scene.v().getCallGraph();

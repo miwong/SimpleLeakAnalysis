@@ -30,23 +30,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 import soot.Body;
-import soot.MethodOrMethodContext;
 import soot.PackManager;
 import soot.Scene;
-import soot.SceneTransformer;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Transform;
 import soot.Value;
 import soot.ValueBox;
 import soot.jimple.InvokeExpr;
-import soot.jimple.toolkits.callgraph.CHATransformer;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Sources;
-import soot.jimple.toolkits.callgraph.Targets;
 import soot.options.Options;
 
 public class SimpleLeakAnalysis
@@ -60,6 +55,8 @@ public class SimpleLeakAnalysis
 		{"<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>", "SMS"}
 	};
 	*/
+	
+	private static String[] activityCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};
 
 	public static void main(String[] args) throws FileNotFoundException, IOException
 	{
@@ -67,11 +64,14 @@ public class SimpleLeakAnalysis
 		argsList.addAll(Arrays.asList(new String[]{
 				"-w",
 				"-main-class",
-				"com.utoronto.miwong.leaktest.MainActivity",//main-class
-				"com.utoronto.miwong.leaktest.MainActivity" //argument classes
+				args[0],//main-class
+				args[0] //argument classes
 		}));
-
-		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTrans", new LeakAnalysis()));
+		
+		/*
+		SootClass mClass = Scene.v().loadClassAndSupport(args[0]);
+		printClassMethods(mClass);
+		*/
 		
 		/*
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTrans", new SceneTransformer() {
@@ -94,58 +94,38 @@ public class SimpleLeakAnalysis
 			}
 
 		}));
-		*/
-
+		
 		args = argsList.toArray(new String[0]);
-
-		/*
-        Options.v().parse(args);
-        SootClass c = Scene.v().forceResolve("com.utoronto.miwong.leaktest.MainActivity", SootClass.BODIES);
-        c.setApplicationClass();
-        Scene.v().loadNecessaryClasses();
-        SootMethod method = c.getMethodByName("onCreate");
-        List entryPoints = new ArrayList();
-        entryPoints.add(method);
-        Scene.v().setEntryPoints(entryPoints);
-        PackManager.v().runPacks();
-		 */
-
 		soot.Main.main(args);
+		*/
+		
+		PackManager.v().getPack("wjtp").add(new Transform("wjtp.LeakAnalysis", new LeakAnalysis()));
+		
+		args = argsList.toArray(new String[0]);
+		Options.v().parse(args);
+		
+		SootClass mainClass = Scene.v().forceResolve(args[0], SootClass.BODIES);
+		mainClass.setApplicationClass();
+		Scene.v().loadNecessaryClasses();
+		
+		List<SootMethod> entryPoints = new ArrayList<SootMethod>();
+		
+		// Add activity callbacks as entry points
+		for (int i = 0; i < activityCallbacks.length; i++) {
+			if (mainClass.declaresMethodByName(activityCallbacks[i])) {
+				entryPoints.add(mainClass.getMethodByName(activityCallbacks[i]));
+			}
+		}
+		
+		// Find UI callbacks
+		entryPoints.add(mainClass.getMethodByName("leakToSMSDirectly"));
+		entryPoints.add(mainClass.getMethodByName("leakToSMS"));
+		entryPoints.add(mainClass.getMethodByName("getWebHistory"));
 
-		/*
-    	Scene.v().loadBasicClasses();
-    	SootClass mclass;
-        mclass = Scene.v().loadClassAndSupport(args[0]);
-    	mclass.setApplicationClass(); 
-    	//printClassMethods(mclass);
-
-    	SootMethod method = mclass.getMethodByName("onCreate");
-    	ArrayList<SootMethod> entryPoints = new ArrayList<SootMethod>();
-        entryPoints.add(method);
-        Scene.v().setEntryPoints(entryPoints);
-        PackManager.v().runPacks();
-
- 	   List<String> argsList = new ArrayList<String>(Arrays.asList(args));
- 	   argsList.addAll(Arrays.asList(new String[]{
- 			   "-w",
- 			   "-main-class",
- 			   "com.utoronto.miwong.leaktest.MainActivity",
- 			   "com.utoronto.miwong.leaktest.MainActivity"
- 	   }));
-
-       args = argsList.toArray(new String[0]);
-
-       soot.Main.main(args);
-
-    	SootMethod src = mclass.getMethodByName("leakToSMSDirectly");
-    	CallGraph cg = Scene.v().getCallGraph();
-
-    	Iterator<MethodOrMethodContext> targets = new Targets(cg.edgesOutOf(src));
-    	while (targets.hasNext()) {
-    		SootMethod tgt = (SootMethod)targets.next();
-    		System.out.println(src + " may call " + tgt);
-    	}
-		 */
+		Scene.v().setEntryPoints(entryPoints);
+		
+		PackManager.v().runPacks();
+		
 	}
 
 	private static void printPossibleCallers(SootMethod target) {
@@ -157,6 +137,7 @@ public class SimpleLeakAnalysis
 		}
 	}
 
+	/* Doesn't use whole program mode */
 	private static void printClassMethods(SootClass mclass) {
 		System.out.println(mclass.toString());
 		//out = new BufferedWriter(new FileWriter(FILE));
