@@ -49,7 +49,7 @@ import soot.jimple.toolkits.callgraph.Sources;
 import soot.jimple.toolkits.callgraph.Targets;
 import soot.options.Options;
 
-public class MyMain
+public class SimpleLeakAnalysis
 {
 	/*
 	private static String[][] sourceAPIs = {
