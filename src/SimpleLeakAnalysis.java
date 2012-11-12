@@ -24,12 +24,20 @@
  */
 
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import soot.Body;
 import soot.PackManager;
@@ -59,73 +67,128 @@ public class SimpleLeakAnalysis
 	private static String[] activityCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};
 
 	public static void main(String[] args) throws FileNotFoundException, IOException
-	{
-		List<String> argsList = new ArrayList<String>(Arrays.asList(args));
-		argsList.addAll(Arrays.asList(new String[]{
-				"-w",
-				"-main-class",
-				args[0],//main-class
-				args[0] //argument classes
-		}));
-		
-		/*
-		SootClass mClass = Scene.v().loadClassAndSupport(args[0]);
-		printClassMethods(mClass);
-		*/
-		
-		/*
-		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTrans", new SceneTransformer() {
-
-			protected void internalTransform(String phaseName, Map options) {
-				CHATransformer.v().transform();
-				CallGraph cg = Scene.v().getCallGraph();
-				
-				//SootMethod src = Scene.v().getMethod("<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>");
-				//SootClass a = Scene.v().getSootClass("com.utoronto.miwong.leaktest.MainActivity");
-				SootMethod src = Scene.v().getMainClass().getMethodByName("leakToSMSDirectly");
-
-				Iterator<MethodOrMethodContext> targets = new Targets(cg.edgesOutOf(src));
-				//Iterator<MethodOrMethodContext> targets = new Targets(cg.edgesInto(src));
-
-				while (targets.hasNext()) {
-					SootMethod tgt = (SootMethod)targets.next();
-					System.out.println(src + " may call " + tgt);
-				}
-			}
-
-		}));
-		
-		args = argsList.toArray(new String[0]);
-		soot.Main.main(args);
-		*/
-		
-		PackManager.v().getPack("wjtp").add(new Transform("wjtp.LeakAnalysis", new LeakAnalysis()));
-		
-		args = argsList.toArray(new String[0]);
-		Options.v().parse(args);
-		
-		SootClass mainClass = Scene.v().forceResolve(args[0], SootClass.BODIES);
-		mainClass.setApplicationClass();
-		Scene.v().loadNecessaryClasses();
-		
-		List<SootMethod> entryPoints = new ArrayList<SootMethod>();
-		
-		// Add activity callbacks as entry points
-		for (int i = 0; i < activityCallbacks.length; i++) {
-			if (mainClass.declaresMethodByName(activityCallbacks[i])) {
-				entryPoints.add(mainClass.getMethodByName(activityCallbacks[i]));
-			}
+	{		
+		if (args.length < 1) {
+			System.out.println("Usage: SimpleLeakAnalysis <main class to be analyzed> [options]");
+			return;
 		}
 		
-		// Find UI callbacks
-		entryPoints.add(mainClass.getMethodByName("leakToSMSDirectly"));
-		entryPoints.add(mainClass.getMethodByName("leakToSMS"));
-		entryPoints.add(mainClass.getMethodByName("getWebHistory"));
+		if (args[0].equals("--list") && args.length == 2) {
+			SootClass mClass = Scene.v().loadClassAndSupport(args[1]);
+			printClassMethods(mClass);
+			return;
+		} else {			
+			//List<String> argsList = new ArrayList<String>(Arrays.asList("-w", "-main-class"));
+			//argsList.addAll(activities);
 
-		Scene.v().setEntryPoints(entryPoints);
-		
-		PackManager.v().runPacks();
-		
+			/*
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTrans", new SceneTransformer() {
+	
+				protected void internalTransform(String phaseName, Map options) {
+					CHATransformer.v().transform();
+					CallGraph cg = Scene.v().getCallGraph();
+					
+					//SootMethod src = Scene.v().getMethod("<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>");
+					//SootClass a = Scene.v().getSootClass("com.utoronto.miwong.leaktest.MainActivity");
+					SootMethod src = Scene.v().getMainClass().getMethodByName("leakToSMSDirectly");
+	
+					Iterator<MethodOrMethodContext> targets = new Targets(cg.edgesOutOf(src));
+					//Iterator<MethodOrMethodContext> targets = new Targets(cg.edgesInto(src));
+	
+					while (targets.hasNext()) {
+						SootMethod tgt = (SootMethod)targets.next();
+						System.out.println(src + " may call " + tgt);
+					}
+				}
+	
+			}));
+			
+			args = argsList.toArray(new String[0]);
+			soot.Main.main(args);
+			*/
+			
+			// Obtain list of activities in application
+			List<String> activities = new ArrayList<String>();
+			
+			try {
+				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+	            DocumentBuilder docBuilder = dbf.newDocumentBuilder();
+	            Document manifest = docBuilder.parse(new File(args[0] + "//AndroidManifest.xml"));
+	            
+	            NodeList manifestNode = manifest.getElementsByTagName("manifest");
+	            NamedNodeMap manifestAttr = manifestNode.item(0).getAttributes();
+	            String packageName = manifestAttr.getNamedItem("package").getNodeValue();
+	            
+	            NodeList activityNodes = manifest.getElementsByTagName("activity");
+	            for (int i = 0; i < activityNodes.getLength(); i++) {
+	            	Node activity = activityNodes.item(i);
+	            	activities.add(packageName + activity.getAttributes().getNamedItem("android:name").getNodeValue());
+	            }
+
+			} catch (Exception err) {
+				System.out.println("Error in obtaining activities: " + err);
+			}
+			
+			// Obtain list of UI event handlers
+			List<String> uiCallbacks = new ArrayList<String>();
+			
+			try {
+				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+	            DocumentBuilder docBuilder = dbf.newDocumentBuilder();
+	            Document layout = docBuilder.parse(new File(args[0] + "//res/layout/activity_main.xml"));
+	            
+	            NodeList buttons = layout.getElementsByTagName("Button");
+	            
+	            for (int i = 0; i < buttons.getLength(); i++) {
+	            	Node node = buttons.item(i);
+	            	NamedNodeMap nodeAttr = node.getAttributes();
+	            	
+	            	if (nodeAttr != null) {
+	            		Node onclick = nodeAttr.getNamedItem("android:onClick");
+	            		if (onclick != null) {
+	            			uiCallbacks.add(onclick.getNodeValue());
+	            		}
+	            	}
+	            }
+			} catch (Exception err) {
+				System.out.println("Error in obtaining UI event handlers: " + err);
+			}
+			
+			// Whole-program mode
+			String[] argsList = {"-w"};
+			Options.v().parse(argsList);
+			
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.LeakAnalysis", new LeakAnalysis()));
+			
+			// For now, hard-coded to first activity in manifest
+			SootClass mainClass = Scene.v().forceResolve(activities.get(0), SootClass.BODIES);
+			mainClass.setApplicationClass();
+			Scene.v().loadNecessaryClasses();
+			
+			List<SootMethod> entryPoints = new ArrayList<SootMethod>();
+			
+			// Add activity callbacks as entry points
+			for (int i = 0; i < activityCallbacks.length; i++) {
+				if (mainClass.declaresMethodByName(activityCallbacks[i])) {
+					entryPoints.add(mainClass.getMethodByName(activityCallbacks[i]));
+				}
+			}
+			
+			/*
+			CallGraph cgTemp = Scene.v().getCallGraph();
+			SootMethod layoutMethod = Scene.v().getMethod("<android.app.Activity: void setContentView(int)>");
+			Iterator<MethodOrMethodContext> setters = new Sources(cgTemp.edgesInto(layoutMethod));
+			*/
+			
+			// Add UI event handlers as entry points
+			for (int i = 0; i < uiCallbacks.size(); i++) {
+				entryPoints.add(mainClass.getMethodByName(uiCallbacks.get(i)));
+			}
+	
+			Scene.v().setEntryPoints(entryPoints);
+			
+			PackManager.v().runPacks();
+		}
 	}
 
 	private static void printPossibleCallers(SootMethod target) {

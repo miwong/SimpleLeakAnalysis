@@ -95,7 +95,11 @@ public class LeakAnalysis extends SceneTransformer {
 				SootMethod callee = (SootMethod)callees.next();
 				
 				if (sinkAPIs.contains(callee.toString())){
-					System.out.println("\nLeak Detected!\nSource:\t" + apiSource + "\nSink:\t" + callee.toString() + "\nMethod:\t" + source.toString());
+					System.out.println("Leak Detected!");
+					System.out.println("Source:" + apiSource);
+					System.out.println("Sink:\t" + callee.toString());
+					System.out.println("Method:\t" + source.toString());
+					System.out.println("");
 				}
 			}
 			
