@@ -54,16 +54,6 @@ import soot.options.Options;
 
 public class SimpleLeakAnalysis
 {
-	/*
-	private static String[][] sourceAPIs = {
-		{"<android.provider.Browser: android.database.Cursor getAllVisitedUrls(android.content.ContentResolver)>", "Web History" }
-	};
-
-	private static String[][] sinkAPIs = {
-		{"<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>", "SMS"}
-	};
-	*/
-	
 	private static String[] activityCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};
 
 	public static void main(String[] args) throws FileNotFoundException, IOException
@@ -77,11 +67,11 @@ public class SimpleLeakAnalysis
 			SootClass mClass = Scene.v().loadClassAndSupport(args[1]);
 			printClassMethods(mClass);
 			return;
-		} else {			
-			//List<String> argsList = new ArrayList<String>(Arrays.asList("-w", "-main-class"));
-			//argsList.addAll(activities);
-
+		} else {
 			/*
+			List<String> argsList = new ArrayList<String>(Arrays.asList("-w", "-main-class"));
+			argsList.addAll(activities);
+
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTrans", new SceneTransformer() {
 	
 				protected void internalTransform(String phaseName, Map options) {
@@ -120,36 +110,48 @@ public class SimpleLeakAnalysis
 	            String packageName = manifestAttr.getNamedItem("package").getNodeValue();
 	            
 	            NodeList activityNodes = manifest.getElementsByTagName("activity");
+	            
 	            for (int i = 0; i < activityNodes.getLength(); i++) {
 	            	Node activity = activityNodes.item(i);
-	            	activities.add(packageName + activity.getAttributes().getNamedItem("android:name").getNodeValue());
+	            	String activityName = activity.getAttributes().getNamedItem("android:name").getNodeValue();
+	            	
+	            	if (activityName.startsWith(".")) {
+	            		activityName = packageName + activityName;
+	            	}
+	            	
+	            	activities.add(activityName);
 	            }
 
 			} catch (Exception err) {
 				System.out.println("Error in obtaining activities: " + err);
 			}
 			
-			// Obtain list of UI event handlers
+			// Obtain every possible UI event handler from layout XML file
 			List<String> uiCallbacks = new ArrayList<String>();
 			
 			try {
 				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 	            DocumentBuilder docBuilder = dbf.newDocumentBuilder();
-	            Document layout = docBuilder.parse(new File(args[0] + "//res/layout/activity_main.xml"));
-	            
-	            NodeList buttons = layout.getElementsByTagName("Button");
-	            
-	            for (int i = 0; i < buttons.getLength(); i++) {
-	            	Node node = buttons.item(i);
-	            	NamedNodeMap nodeAttr = node.getAttributes();
-	            	
-	            	if (nodeAttr != null) {
-	            		Node onclick = nodeAttr.getNamedItem("android:onClick");
-	            		if (onclick != null) {
-	            			uiCallbacks.add(onclick.getNodeValue());
-	            		}
-	            	}
-	            }
+				File layoutFolder = new File(args[0] + "//res/layout");
+				
+				for (File layoutFile : layoutFolder.listFiles()) {
+		            Document layout = docBuilder.parse(layoutFile);
+		            
+		            NodeList buttons = layout.getElementsByTagName("Button");
+		            
+		            for (int i = 0; i < buttons.getLength(); i++) {
+		            	Node node = buttons.item(i);
+		            	NamedNodeMap nodeAttr = node.getAttributes();
+		            	
+		            	if (nodeAttr != null) {
+		            		Node onclick = nodeAttr.getNamedItem("android:onClick");
+		            		if (onclick != null) {
+		            			uiCallbacks.add(onclick.getNodeValue());
+		            		}
+		            	}
+		            }
+				}
+				
 			} catch (Exception err) {
 				System.out.println("Error in obtaining UI event handlers: " + err);
 			}
@@ -160,29 +162,33 @@ public class SimpleLeakAnalysis
 			
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.LeakAnalysis", new LeakAnalysis()));
 			
-			// For now, hard-coded to first activity in manifest
-			SootClass mainClass = Scene.v().forceResolve(activities.get(0), SootClass.BODIES);
-			mainClass.setApplicationClass();
-			Scene.v().loadNecessaryClasses();
-			
+			// Add entry points to scene
 			List<SootMethod> entryPoints = new ArrayList<SootMethod>();
+
+			for (String activity : activities) {
+				SootClass mainClass = Scene.v().forceResolve(activity, SootClass.BODIES);
+				mainClass.setApplicationClass();
+				Scene.v().loadNecessaryClasses();
 			
-			// Add activity callbacks as entry points
-			for (int i = 0; i < activityCallbacks.length; i++) {
-				if (mainClass.declaresMethodByName(activityCallbacks[i])) {
-					entryPoints.add(mainClass.getMethodByName(activityCallbacks[i]));
+				// Add activity callbacks as entry points
+				for (String callback : activityCallbacks) {
+					if (mainClass.declaresMethodByName(callback)) {
+						entryPoints.add(mainClass.getMethodByName(callback));
+					}
 				}
-			}
-			
-			/*
-			CallGraph cgTemp = Scene.v().getCallGraph();
-			SootMethod layoutMethod = Scene.v().getMethod("<android.app.Activity: void setContentView(int)>");
-			Iterator<MethodOrMethodContext> setters = new Sources(cgTemp.edgesInto(layoutMethod));
-			*/
-			
-			// Add UI event handlers as entry points
-			for (int i = 0; i < uiCallbacks.size(); i++) {
-				entryPoints.add(mainClass.getMethodByName(uiCallbacks.get(i)));
+				
+				// Add UI event handlers as entry points
+				for (String callback : uiCallbacks) {
+					if (mainClass.declaresMethodByName(callback)) {
+						entryPoints.add(mainClass.getMethodByName(callback));
+					}
+				}
+				
+				/*
+				CallGraph cgTemp = Scene.v().getCallGraph();
+				SootMethod layoutMethod = Scene.v().getMethod("<android.app.Activity: void setContentView(int)>");
+				Iterator<MethodOrMethodContext> setters = new Sources(cgTemp.edgesInto(layoutMethod));
+				*/
 			}
 	
 			Scene.v().setEntryPoints(entryPoints);
