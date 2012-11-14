@@ -38,10 +38,8 @@ public class LeakAnalysis extends SceneTransformer {
 		TransitiveTargets trans = new TransitiveTargets(mCallGraph);
 		
 		List<SootMethod> entries = Scene.v().getEntryPoints();
-		Iterator<SootMethod> iter = entries.iterator();
 		
-		while (iter.hasNext()) {
-			SootMethod entry = iter.next();
+		for (SootMethod entry : entries) {
 			System.out.println("Processing entrypoint: " + entry.toString());
 			Iterator<MethodOrMethodContext> targets = trans.iterator(entry);
 			

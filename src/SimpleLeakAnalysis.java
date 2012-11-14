@@ -184,11 +184,14 @@ public class SimpleLeakAnalysis
 					}
 				}
 				
-				/*
-				CallGraph cgTemp = Scene.v().getCallGraph();
-				SootMethod layoutMethod = Scene.v().getMethod("<android.app.Activity: void setContentView(int)>");
-				Iterator<MethodOrMethodContext> setters = new Sources(cgTemp.edgesInto(layoutMethod));
-				*/
+				// Check for implementers of OnClickListener and add as entrypoints
+				// TODO: check for other UI listeners (e.g. OnDragListener, etc.)
+				SootClass listenerInterface = Scene.v().getSootClass("android.view.View$OnClickListener");
+				List<SootClass> listenerClasses = Scene.v().getActiveHierarchy().getImplementersOf(listenerInterface);
+				
+				for (SootClass listener : listenerClasses) {
+					entryPoints.add(listener.getMethodByName("onClick"));
+				}
 			}
 	
 			Scene.v().setEntryPoints(entryPoints);
