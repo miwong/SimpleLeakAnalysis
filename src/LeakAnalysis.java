@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -9,6 +10,7 @@ import soot.SceneTransformer;
 import soot.SootMethod;
 import soot.jimple.toolkits.callgraph.CHATransformer;
 import soot.jimple.toolkits.callgraph.CallGraph;
+import soot.jimple.toolkits.callgraph.ReachableMethods;
 import soot.jimple.toolkits.callgraph.Sources;
 import soot.jimple.toolkits.callgraph.TransitiveTargets;
 
@@ -21,7 +23,14 @@ public class LeakAnalysis extends SceneTransformer {
 	);
 	
 	private static final List<String> sinkAPIs = Arrays.asList(
-		"<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>"
+		//SMS
+		"<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>",
+		//Internet
+		//"<org.apache.http.client.HttpClient: org.apache.http.HttpResponse execute(org.apache.http.client.methods.HttpUriRequest)>",
+		"<org.apache.http.impl.client.AbstractHttpClient: org.apache.http.HttpResponse execute(org.apache.http.client.methods.HttpUriRequest)>",
+		//"<java.net.URLConnection: java.io.InputStream getInputStream()>",
+		"<java.net.URL: java.net.URLConnection openConnection()>",
+		"<java.net.Socket: void connect(java.net.SocketAddress)>"
 	);
 	
 	private static final List<String> contentURIs = Arrays.asList(
@@ -31,6 +40,8 @@ public class LeakAnalysis extends SceneTransformer {
 	private static final List<String> intentFilters = Arrays.asList(
 		"RECEIVE_SMS"
 	);
+	
+	private static final String contentQueryMethod = "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>";
 	
 	public void internalTransform(String phaseName, Map options) {
 		CHATransformer.v().transform();
@@ -43,33 +54,17 @@ public class LeakAnalysis extends SceneTransformer {
 			System.out.println("Processing entrypoint: " + entry.toString());
 			Iterator<MethodOrMethodContext> targets = trans.iterator(entry);
 			
+			List<MethodOrMethodContext> currentEntry = new ArrayList<MethodOrMethodContext>();
+			currentEntry.add((MethodOrMethodContext)entry);
+			ReachableMethods reachable = new ReachableMethods(mCallGraph, currentEntry);
+			reachable.update();
+			
 			while (targets.hasNext()) {
 				SootMethod current = (SootMethod)targets.next();
 				
 				if (sourceAPIs.contains(current.toString())) {
 					//System.out.println("Uses source:\t" + current.toString());
-					checkTransitiveSources(current, current.toString());
-					
-					/*
-					Iterator<MethodOrMethodContext> sources = new Sources(mCallGraph.edgesInto(current));
-					
-					while (sources.hasNext()) {						
-						SootMethod caller = (SootMethod)sources.next();
-						System.out.println("Used by caller: " + caller.toString());
-						Iterator<MethodOrMethodContext> callees = trans.iterator(caller);
-						
-						while (callees.hasNext()) {
-							SootMethod callee = (SootMethod)callees.next();
-							
-							if (callee.toString() == sinkAPIs[0][0]) {
-								System.out.println("Leaks to sink: " + callee.toString());
-								//System.out.println("Through method: " + caller.toString());
-							}
-						}
-						
-						checkTransitiveSources(caller);
-					}
-					*/		
+					checkTransitiveSources(current, current.toString(), reachable);
 				}
 				
 				//if (current.toString() == sinkAPIs[0][0]) {
@@ -79,18 +74,24 @@ public class LeakAnalysis extends SceneTransformer {
 		}
 	}
 	
-	private void checkTransitiveSources(SootMethod method, String apiSource) {
+	private void checkTransitiveSources(SootMethod method, String apiSource, ReachableMethods reachable) {
 		TransitiveTargets trans = new TransitiveTargets(mCallGraph);
-		Iterator<MethodOrMethodContext> sources = new Sources(mCallGraph.edgesInto(method));
+		Sources sources = new Sources(mCallGraph.edgesInto(method));
 		
 		while (sources.hasNext()) {
 			SootMethod source = (SootMethod)sources.next();
+			
+			if (!reachable.contains(source)) {
+				continue;
+			}
 			
 			//Iterator<MethodOrMethodContext> callees = new Targets(mCallGraph.edgesOutOf(source));
 			Iterator<MethodOrMethodContext> callees = trans.iterator(source);
 			
 			while (callees.hasNext()) {
 				SootMethod callee = (SootMethod)callees.next();
+				
+				//System.out.println("Calls: " + callee.toString());
 				
 				if (sinkAPIs.contains(callee.toString())){
 					System.out.println("Leak Detected!");
@@ -100,8 +101,8 @@ public class LeakAnalysis extends SceneTransformer {
 					System.out.println("");
 				}
 			}
-			
-			checkTransitiveSources(source, apiSource);
+
+			checkTransitiveSources(source, apiSource, reachable);
 		}
 	}
 	
@@ -110,7 +111,7 @@ public class LeakAnalysis extends SceneTransformer {
 		CHATransformer.v().transform();
 		CallGraph cg = Scene.v().getCallGraph();
 		
-		SootMethod src = Scene.v().getMainClass().getMethodByName("leakToSMSDirectly");
+		SootMethod src = Scene.v().getMainClass().getMethodByName("onCreate");
 		//SootMethod src = Scene.v().getMethod("<com.utoronto.miwong.leaktest.MainActivity: void leakToSMSDirectly(android.view.View)>");
 		//SootMethod src = Scene.v().getMethod("<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>");
 
