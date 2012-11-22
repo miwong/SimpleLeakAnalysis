@@ -54,10 +54,22 @@ import soot.options.Options;
 
 public class SimpleLeakAnalysis
 {
-	private static String[] activityCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};
+	private static final String[] activityCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};
+	private static final String[] serviceCallbacks = {"onCreate", "onStart", "onResume", "onRestart", "onPause", "onStop", "onDestroy"};	
+	
+	private String mAppFolder;
+	private String mSdkFolder;
 
-	public static void main(String[] args) throws FileNotFoundException, IOException
+	public static final void main(String[] args) throws FileNotFoundException, IOException
 	{
+		SimpleLeakAnalysis analysis = new SimpleLeakAnalysis();
+		analysis.run(args);
+	}
+	
+	public final void run(String[] args) throws FileNotFoundException, IOException
+	{
+		mSdkFolder = "/home/michelle/android-sdk-linux";
+		
 		if (args.length < 1) {
 			System.out.println("Usage: SimpleLeakAnalysis <main class to be analyzed> [options]");
 			return;
@@ -69,14 +81,16 @@ public class SimpleLeakAnalysis
 			printClassMethods(mClass);
 			return;
 		} else {
-			String appFolder = args[0];
-			// Obtain list of activities in application
+			mAppFolder = args[0];
+			
+			// Obtain list of activities and services in application
 			List<String> activities = new ArrayList<String>();
+			List<String> services = new ArrayList<String>();
 			
 			try {
 				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 	            DocumentBuilder docBuilder = dbf.newDocumentBuilder();
-	            Document manifest = docBuilder.parse(new File(appFolder + "//AndroidManifest.xml"));
+	            Document manifest = docBuilder.parse(new File(mAppFolder + "//AndroidManifest.xml"));
 	            
 	            NodeList manifestNode = manifest.getElementsByTagName("manifest");
 	            NamedNodeMap manifestAttr = manifestNode.item(0).getAttributes();
@@ -94,6 +108,19 @@ public class SimpleLeakAnalysis
 	            	
 	            	activities.add(activityName);
 	            }
+	            
+	            NodeList serviceNodes = manifest.getElementsByTagName("service");
+	            
+	            for (int i = 0; i < serviceNodes.getLength(); i++) {
+	            	Node service = serviceNodes.item(i);
+	            	String serviceName = service.getAttributes().getNamedItem("android:name").getNodeValue();
+	            	
+	            	if (serviceName.startsWith(".")) {
+	            		serviceName = packageName + serviceName;
+	            	}
+	            	
+	            	services.add(serviceName);
+	            }
 
 			} catch (Exception err) {
 				System.out.println("Error in obtaining activities: " + err);
@@ -105,12 +132,13 @@ public class SimpleLeakAnalysis
 			try {		
 				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 	            DocumentBuilder docBuilder = dbf.newDocumentBuilder();
-				File layoutFolder = new File(appFolder + "//res/layout");
+				File layoutFolder = new File(mAppFolder + "//res/layout");
 
 				for (File layoutFile : layoutFolder.listFiles()) {
 					if (layoutFile.getName().endsWith(".xml")) {
 			            Document layout = docBuilder.parse(layoutFile);
 			            
+			            // TODO: add support for other UI elements/events
 			            NodeList buttons = layout.getElementsByTagName("Button");
 			            
 			            for (int i = 0; i < buttons.getLength(); i++) {
@@ -132,12 +160,13 @@ public class SimpleLeakAnalysis
 			}
 			
 			// Whole-program mode
-			// Set class path:  app classes and the android.jar file (hard-coded for now)
-			String classPath = "/home/michelle/android-sdk-linux/platforms/android-16/android.jar";
-			classPath += ":" + appFolder + "//bin//classes";
-			classPath += ":" + appFolder + "//libs";
+			// Set class path: classes needed by app and the android.jar file (hard-coded for now)
+			String classPath = mSdkFolder + "/platforms/android-16/android.jar";
+			//classPath += ":" + mSdkFolder + "/platforms/android-16/data/layoutlib.jar";
+			classPath += ":" + mAppFolder + "/bin/classes";
+			classPath += ":" + mAppFolder + "/libs";
 			
-			File libsFolder = new File(appFolder + "//libs");
+			File libsFolder = new File(mAppFolder + "/libs");
 			if (libsFolder != null) {
 				for (File libsFile : libsFolder.listFiles()) {
 					String path = libsFile.getAbsolutePath();
@@ -149,6 +178,14 @@ public class SimpleLeakAnalysis
 			}
 
 			String[] argsList = {"-w",
+								 //"-verbose",
+								 //"-allow-phantom-refs",
+								 //"-full-resolver",
+								 //"-f", "jimple",
+					 			 //"-p", "cg", "all-reachable",
+								 //"-p", "cg", "safe-newinstance",
+								 //"-p", "cg", "safe-forname",
+								 "-p", "cg", "verbose:true",
 								 "-cp", classPath};
 			
 			Options.v().parse(argsList);
@@ -186,14 +223,34 @@ public class SimpleLeakAnalysis
 					entryPoints.add(listener.getMethodByName("onClick"));
 				}
 			}
-	
-			Scene.v().setEntryPoints(entryPoints);
 			
+			for (String service: services) {				
+				// Add service callbacks as entry points
+				SootClass mainClass = Scene.v().forceResolve(service, SootClass.BODIES);
+				mainClass.setApplicationClass();
+				Scene.v().loadNecessaryClasses();
+				
+				for (String callback : serviceCallbacks) {
+					if (mainClass.declaresMethodByName(callback)) {
+						entryPoints.add(mainClass.getMethodByName(callback));
+					}
+				}
+			}
+			
+			//SootClass contentResolver = Scene.v().forceResolve("android.content.ContentResolver", SootClass.BODIES);
+			//System.out.println(contentResolver.getMethods().toString());
+	
+			//SootClass leakerClass = Scene.v().getSootClass("com.utoronto.miwong.leaktest.WebHistoryToWebLeaker");
+			//leakerClass.setApplicationClass();
+			
+			Scene.v().setEntryPoints(entryPoints);
+
 			PackManager.v().runPacks();
+			//PackManager.v().writeOutput();
 		}
 	}
 
-	private static void printPossibleCallers(SootMethod target) {
+	private void printPossibleCallers(SootMethod target) {
 		CallGraph cg = Scene.v().getCallGraph();
 		Sources sources = new Sources(cg.edgesInto(target));
 		while (sources.hasNext()) {
@@ -203,7 +260,7 @@ public class SimpleLeakAnalysis
 	}
 
 	/* Doesn't use whole program mode */
-	private static void printClassMethods(SootClass mclass) {
+	private void printClassMethods(SootClass mclass) {
 		System.out.println(mclass.toString());
 		//out = new BufferedWriter(new FileWriter(FILE));
 
@@ -232,7 +289,7 @@ public class SimpleLeakAnalysis
 	}
 	
 	/*
-	private static void printClassMethodsCallGraph() {
+	private void printClassMethodsCallGraph() {
 		List<String> argsList = new ArrayList<String>(Arrays.asList("-w", "-main-class"));
 		argsList.addAll(activities);
 
