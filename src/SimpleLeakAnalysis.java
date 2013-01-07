@@ -67,11 +67,10 @@ public class SimpleLeakAnalysis
 	}
 	
 	public final void run(String[] args) throws FileNotFoundException, IOException
-	{
-		mSdkFolder = "/home/michelle/android-sdk-linux";
-		
-		if (args.length < 1) {
+	{		
+		if (args.length < 1 || args[0].equals("--help")) {
 			System.out.println("Usage: SimpleLeakAnalysis <main class to be analyzed> [options]");
+			System.out.println("Required libraries:  soot, android SDK");
 			return;
 		}
 		
@@ -81,7 +80,26 @@ public class SimpleLeakAnalysis
 			printClassMethods(mClass);
 			return;
 		} else {
+			mSdkFolder = "/home/michelle/android-sdk-linux";
 			mAppFolder = args[0];
+			
+			String androidLib = mSdkFolder + "/platforms/android-16/android.jar";
+			
+			if (args.length > 1) {
+				for (int i = 1; i < args.length; i += 2) {
+					if (args[i].equals("--android-sdk")) {
+						mSdkFolder = args[i + 1];
+						androidLib = mSdkFolder + "/platforms/android-16/android.jar";
+					} 
+					else if (args[i].equals("--android-lib")) {
+						androidLib = args[i + 1];
+					}
+					else {
+						System.out.println("Invalid argument.");
+						return;
+					}
+				}
+			}
 			
 			// Obtain list of activities and services in application
 			List<String> activities = new ArrayList<String>();
@@ -161,7 +179,7 @@ public class SimpleLeakAnalysis
 			
 			// Whole-program mode
 			// Set class path: classes needed by app and the android.jar file (hard-coded for now)
-			String classPath = mSdkFolder + "/platforms/android-16/android.jar";
+			String classPath = androidLib;
 			//classPath += ":" + mSdkFolder + "/platforms/android-16/data/layoutlib.jar";
 			classPath += ":" + mAppFolder + "/bin/classes";
 			classPath += ":" + mAppFolder + "/libs";
@@ -237,9 +255,16 @@ public class SimpleLeakAnalysis
 				}
 			}
 			
-			//SootClass contentResolver = Scene.v().forceResolve("android.content.ContentResolver", SootClass.BODIES);
+			/*
+			SootClass contentResolver = Scene.v().forceResolve("android.content.ContentResolver", SootClass.BODIES);
 			//System.out.println(contentResolver.getMethods().toString());
-	
+			SootMethod queryMethod = Scene.v().getMethod("<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>");
+			List<SootClass> resolverClasses = Scene.v().getActiveHierarchy().getDirectSubclassesOf(contentResolver);
+			System.out.println(resolverClasses.size());
+			List<SootMethod> queryMethods = Scene.v().getActiveHierarchy().resolveAbstractDispatch(contentResolver, queryMethod);
+			System.out.println(queryMethods.size());
+			*/
+			
 			//SootClass leakerClass = Scene.v().getSootClass("com.utoronto.miwong.leaktest.WebHistoryToWebLeaker");
 			//leakerClass.setApplicationClass();
 			

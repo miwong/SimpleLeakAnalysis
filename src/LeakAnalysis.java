@@ -21,7 +21,10 @@ public class LeakAnalysis extends SceneTransformer {
 	private CallGraph mCallGraph;
 	
 	private static final List<String> sourceAPIs = Arrays.asList(
-		"<android.provider.Browser: android.database.Cursor getAllVisitedUrls(android.content.ContentResolver)>"
+		"<android.provider.Browser: android.database.Cursor getAllVisitedUrls(android.content.ContentResolver)>",
+		
+		//Query (should not be here)
+		"<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>"
 	);
 	
 	private static final List<String> sinkAPIs = Arrays.asList(
@@ -34,9 +37,7 @@ public class LeakAnalysis extends SceneTransformer {
 		"<java.net.URLConnection: java.io.InputStream getInputStream()>",
 		//"<java.net.URL: java.net.URLConnection openConnection()>",
 		"<java.net.Socket: void connect(java.net.SocketAddress)>",
-		
-		//Query (should not be here)
-		"<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>"
+		"<java.net.Socket: java.io.InputStream getInputStream()>"		
 	);
 	
 	private static final List<String> contentURIs = Arrays.asList(
